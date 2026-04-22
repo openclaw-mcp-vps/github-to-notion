@@ -1,38 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
-import { verifyGitHubSignature } from "@/lib/github";
-import { handleGitHubWebhook } from "@/lib/sync";
+import { NextResponse } from "next/server";
 
-export async function POST(request: NextRequest) {
+import { handleGitHubWebhook } from "@/lib/sync-engine";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request) {
   const rawBody = await request.text();
-  const signature = request.headers.get("x-hub-signature-256");
-
-  if (!verifyGitHubSignature(rawBody, signature)) {
-    return NextResponse.json({ message: "Invalid GitHub webhook signature." }, { status: 401 });
-  }
-
-  const eventType = request.headers.get("x-github-event") || "unknown";
-
-  if (eventType === "ping") {
-    return NextResponse.json({ received: true, event: "ping" });
-  }
-
-  let payload: unknown;
 
   try {
-    payload = JSON.parse(rawBody);
-  } catch {
-    return NextResponse.json({ message: "Invalid JSON payload." }, { status: 400 });
-  }
-
-  try {
-    const result = await handleGitHubWebhook(eventType, payload as never);
-    return NextResponse.json({ received: true, ...result });
+    await handleGitHubWebhook(rawBody, request.headers);
+    return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
-      {
-        message: error instanceof Error ? error.message : "GitHub webhook processing failed."
-      },
-      { status: 500 }
+      { error: `GitHub webhook rejected: ${(error as Error).message}` },
+      { status: 401 }
     );
   }
 }

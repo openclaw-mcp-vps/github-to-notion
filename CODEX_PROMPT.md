@@ -11,22 +11,24 @@ NICHE: productivity
 PRICE: $$12/mo per repo/mo
 
 ARCHITECTURE SPEC:
-Real-time webhook-driven sync service using Next.js API routes to handle GitHub webhooks and Notion API calls. PostgreSQL stores sync mappings and user configs, with background jobs for bidirectional updates.
+Next.js app with GitHub/Notion webhooks for real-time bidirectional sync. Uses Supabase for auth/storage, processes webhooks via API routes, and maintains sync state with conflict resolution.
 
 PLANNED FILES:
 - pages/api/webhooks/github.js
 - pages/api/webhooks/notion.js
 - pages/api/auth/github.js
-- pages/api/sync/[repoId].js
-- lib/github.js
-- lib/notion.js
-- lib/database.js
-- components/RepoSetup.jsx
-- components/SyncStatus.jsx
+- pages/api/auth/notion.js
+- lib/github-client.js
+- lib/notion-client.js
+- lib/sync-engine.js
+- components/RepoSelector.js
+- components/DatabaseSelector.js
+- components/SyncStatus.js
 - pages/dashboard.js
+- pages/setup.js
 - pages/index.js
 
-DEPENDENCIES: next, tailwindcss, @octokit/rest, @notionhq/client, pg, prisma, @lemonsqueezy/lemonsqueezy.js, iron-session, swr
+DEPENDENCIES: next, tailwindcss, @supabase/supabase-js, @octokit/rest, @notionhq/client, lemonsqueezy.js, swr, react-hot-toast, lucide-react
 
 REQUIREMENTS:
 - Next.js 15 with App Router (app/ directory)
@@ -34,7 +36,7 @@ REQUIREMENTS:
 - Tailwind CSS v4
 - shadcn/ui components (npx shadcn@latest init, then add needed components)
 - Dark theme ONLY — background #0d1117, no light mode
-- Lemon Squeezy checkout overlay for payments
+- Stripe Payment Link for payments (hosted checkout — use the URL directly as the Buy button href)
 - Landing page that converts: hero, problem, solution, pricing, FAQ
 - The actual tool/feature behind a paywall (cookie-based access after purchase)
 - Mobile responsive
@@ -54,9 +56,13 @@ REQUIREMENTS:
   to package.json dependencies and re-run npm install + npm run build until it passes.
 
 ENVIRONMENT VARIABLES (create .env.example):
-- NEXT_PUBLIC_LEMON_SQUEEZY_STORE_ID
-- NEXT_PUBLIC_LEMON_SQUEEZY_PRODUCT_ID
-- LEMON_SQUEEZY_WEBHOOK_SECRET
+- NEXT_PUBLIC_STRIPE_PAYMENT_LINK  (full URL, e.g. https://buy.stripe.com/test_XXX)
+- NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY  (pk_test_... or pk_live_...)
+- STRIPE_WEBHOOK_SECRET  (set when webhook is wired)
+
+BUY BUTTON RULE: the Buy button's href MUST be `process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK`
+used as-is — do NOT construct URLs from a product ID, do NOT prepend any base URL,
+do NOT wrap it in an embed iframe. The link opens Stripe's hosted checkout directly.
 
 After creating all files:
 1. Run: npm install

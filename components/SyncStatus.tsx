@@ -1,94 +1,116 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import useSWR from "swr";
-import { Activity, Clock3, GitPullRequest, MessageSquareText, RefreshCcw, TriangleAlert } from "lucide-react";
+import { CheckCircle2, LoaderCircle, RefreshCw, TriangleAlert, XCircle } from "lucide-react";
+import toast from "react-hot-toast";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface SyncStatusPayload {
-  repoFullName: string;
-  counts: {
-    issue: number;
-    pull_request: number;
-    comment: number;
+type SyncEvent = {
+  id: string;
+  source: "github" | "notion" | "stripe" | "system";
+  entity: "issue" | "pull_request" | "comment";
+  action: string;
+  outcome: "processed" | "skipped" | "failed";
+  summary: string;
+  createdAt: string;
+  latencyMs?: number;
+};
+
+type SyncStatusResponse = {
+  config: {
+    syncEnabled: boolean;
+    githubConnected: boolean;
+    notionConnected: boolean;
+    githubWebhookConfigured: boolean;
+    notionWebhookConfigured: boolean;
+    githubRepo: string;
+    notionDatabaseId: string;
   };
-  status: {
-    lastGithubEventAt: string | null;
-    lastNotionEventAt: string | null;
-    lastLatencyMs: number | null;
-    lastError: string | null;
-  } | null;
-}
+  totals: {
+    links: number;
+    events: number;
+    purchases: number;
+  };
+  latestEvents: SyncEvent[];
+  error?: string;
+};
 
-function repoToKey(repoFullName: string) {
-  return repoFullName.trim().toLowerCase().replace("/", "__");
-}
-
-const fetcher = async (url: string) => {
-  const response = await fetch(url, { cache: "no-store" });
-  const json = (await response.json()) as SyncStatusPayload & { message?: string };
+const fetcher = async (url: string): Promise<SyncStatusResponse> => {
+  const response = await fetch(url);
+  const json = (await response.json()) as SyncStatusResponse;
 
   if (!response.ok) {
-    throw new Error(json.message || "Could not load sync status");
+    throw new Error(json.error || "Failed to load status.");
   }
 
   return json;
 };
 
-function formatTimestamp(value: string | null) {
-  if (!value) {
-    return "Not yet";
+function OutcomeBadge({ outcome }: { outcome: SyncEvent["outcome"] }) {
+  if (outcome === "processed") {
+    return <Badge className="bg-[#238636]/20 text-[#7ee787]">processed</Badge>;
   }
 
-  const date = new Date(value);
-  return date.toLocaleString();
+  if (outcome === "skipped") {
+    return <Badge className="bg-[#d29922]/20 text-[#f2cc60]">skipped</Badge>;
+  }
+
+  return <Badge className="bg-[#da3633]/20 text-[#ff7b72]">failed</Badge>;
 }
 
-export function SyncStatus({ repoFullName }: { repoFullName: string }) {
-  const [isSyncingNow, setIsSyncingNow] = useState(false);
-  const repoKey = useMemo(() => repoToKey(repoFullName), [repoFullName]);
-
-  const { data, error, mutate, isLoading } = useSWR<SyncStatusPayload>(`/api/sync/${repoKey}`, fetcher, {
-    refreshInterval: 3000,
-    revalidateOnFocus: true
+export function SyncStatus() {
+  const { data, error, isLoading, mutate } = useSWR<SyncStatusResponse>("/api/sync/status", fetcher, {
+    refreshInterval: 3000
   });
 
-  async function triggerSync() {
-    setIsSyncingNow(true);
-
-    try {
-      const response = await fetch(`/api/sync/${repoKey}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ syncNow: true })
-      });
+  const runBackfill = async () => {
+    const promise = fetch("/api/sync/run", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ limit: 30 })
+    }).then(async (response) => {
+      const json = (await response.json()) as { error?: string; processed?: number };
 
       if (!response.ok) {
-        const payload = (await response.json()) as { message?: string };
-        throw new Error(payload.message || "Sync request failed");
+        throw new Error(json.error || "Manual sync failed.");
       }
 
-      await mutate();
-    } finally {
-      setIsSyncingNow(false);
-    }
+      return json;
+    });
+
+    toast.promise(promise, {
+      loading: "Running backfill from GitHub...",
+      success: (result) => `Backfill complete: ${result.processed || 0} items synced.`,
+      error: (message) => String(message)
+    });
+
+    await promise;
+    await mutate();
+  };
+
+  if (isLoading) {
+    return (
+      <Card className="border border-border/60 bg-card/70">
+        <CardContent className="flex items-center gap-3 py-6">
+          <LoaderCircle className="size-4 animate-spin text-[#2f81f7]" />
+          <p className="text-sm text-muted-foreground">Loading sync state...</p>
+        </CardContent>
+      </Card>
+    );
   }
 
-  if (error) {
+  if (error || !data) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Sync status</CardTitle>
-          <CardDescription>Unable to read sync status.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="flex items-center gap-2 text-sm text-[#ff7b72]">
-            <TriangleAlert className="h-4 w-4" />
-            {error.message}
+      <Card className="border border-[#da3633]/40 bg-[#2d1213]/60">
+        <CardContent className="flex items-center gap-3 py-6">
+          <XCircle className="size-4 text-[#ff7b72]" />
+          <p className="text-sm text-[#ffb4ad]">
+            {error?.message || "Unable to load sync status. Check API auth + setup."}
           </p>
         </CardContent>
       </Card>
@@ -96,61 +118,98 @@ export function SyncStatus({ repoFullName }: { repoFullName: string }) {
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
-        <div>
-          <CardTitle>Live sync for {repoFullName}</CardTitle>
-          <CardDescription>Webhook-driven updates are processed as events arrive.</CardDescription>
-        </div>
-        <Button disabled={isLoading || isSyncingNow} onClick={triggerSync} variant="secondary">
-          <RefreshCcw className={`mr-2 h-4 w-4 ${isSyncingNow ? "animate-spin" : ""}`} />
-          Sync now
-        </Button>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="success">Issues: {data?.counts.issue ?? 0}</Badge>
-          <Badge variant="neutral">PRs: {data?.counts.pull_request ?? 0}</Badge>
-          <Badge variant="warning">Comments: {data?.counts.comment ?? 0}</Badge>
-        </div>
-
-        <div className="grid gap-3 text-sm text-[#c9d1d9] md:grid-cols-2">
-          <div className="rounded-xl border border-[#30363d] bg-[#0d1117] p-3">
-            <p className="mb-1 flex items-center gap-2 text-[#8b949e]">
-              <Activity className="h-4 w-4" />
-              Last GitHub event
-            </p>
-            <p>{formatTimestamp(data?.status?.lastGithubEventAt ?? null)}</p>
+    <div className="space-y-4">
+      <Card className="border border-border/60 bg-card/70">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between text-lg">
+            <span>Sync Health</span>
+            <div className="flex items-center gap-2">
+              {data.config.syncEnabled ? (
+                <Badge className="bg-[#238636]/20 text-[#7ee787]">enabled</Badge>
+              ) : (
+                <Badge className="bg-[#d29922]/20 text-[#f2cc60]">paused</Badge>
+              )}
+              <Button variant="outline" size="sm" onClick={runBackfill}>
+                <RefreshCw className="mr-1 size-3.5" />
+                Backfill
+              </Button>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-border/60 bg-background/60 p-3">
+              <p className="text-xs text-muted-foreground">Mapped Items</p>
+              <p className="text-xl font-semibold text-foreground">{data.totals.links}</p>
+            </div>
+            <div className="rounded-lg border border-border/60 bg-background/60 p-3">
+              <p className="text-xs text-muted-foreground">Webhook Events</p>
+              <p className="text-xl font-semibold text-foreground">{data.totals.events}</p>
+            </div>
+            <div className="rounded-lg border border-border/60 bg-background/60 p-3">
+              <p className="text-xs text-muted-foreground">Paying Accounts</p>
+              <p className="text-xl font-semibold text-foreground">{data.totals.purchases}</p>
+            </div>
           </div>
 
-          <div className="rounded-xl border border-[#30363d] bg-[#0d1117] p-3">
-            <p className="mb-1 flex items-center gap-2 text-[#8b949e]">
-              <MessageSquareText className="h-4 w-4" />
-              Last Notion event
-            </p>
-            <p>{formatTimestamp(data?.status?.lastNotionEventAt ?? null)}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {data.config.githubConnected ? (
+              <Badge className="bg-[#238636]/20 text-[#7ee787]">GitHub token connected</Badge>
+            ) : (
+              <Badge className="bg-[#da3633]/20 text-[#ff7b72]">GitHub token missing</Badge>
+            )}
+            {data.config.notionConnected ? (
+              <Badge className="bg-[#238636]/20 text-[#7ee787]">Notion token connected</Badge>
+            ) : (
+              <Badge className="bg-[#da3633]/20 text-[#ff7b72]">Notion token missing</Badge>
+            )}
+            {data.config.githubWebhookConfigured ? (
+              <Badge className="bg-[#238636]/20 text-[#7ee787]">GitHub webhook secret set</Badge>
+            ) : (
+              <Badge className="bg-[#d29922]/20 text-[#f2cc60]">GitHub webhook secret missing</Badge>
+            )}
+            {data.config.notionWebhookConfigured ? (
+              <Badge className="bg-[#238636]/20 text-[#7ee787]">Notion webhook secret set</Badge>
+            ) : (
+              <Badge className="bg-[#d29922]/20 text-[#f2cc60]">Notion webhook secret missing</Badge>
+            )}
           </div>
 
-          <div className="rounded-xl border border-[#30363d] bg-[#0d1117] p-3">
-            <p className="mb-1 flex items-center gap-2 text-[#8b949e]">
-              <Clock3 className="h-4 w-4" />
-              End-to-end latency
-            </p>
-            <p>{data?.status?.lastLatencyMs ? `${data.status.lastLatencyMs} ms` : "Waiting for first event"}</p>
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">Latest events</p>
+            {data.latestEvents.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border/60 bg-background/40 p-3 text-sm text-muted-foreground">
+                Webhook activity will appear here once events arrive.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {data.latestEvents.slice(0, 8).map((event) => (
+                  <div
+                    key={event.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-background/60 px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2 text-sm">
+                      {event.outcome === "processed" ? (
+                        <CheckCircle2 className="size-4 text-[#7ee787]" />
+                      ) : event.outcome === "skipped" ? (
+                        <TriangleAlert className="size-4 text-[#f2cc60]" />
+                      ) : (
+                        <XCircle className="size-4 text-[#ff7b72]" />
+                      )}
+                      <span className="text-foreground">{event.summary}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <OutcomeBadge outcome={event.outcome} />
+                      <span>{new Date(event.createdAt).toLocaleTimeString()}</span>
+                      {event.latencyMs ? <span>{event.latencyMs}ms</span> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-
-          <div className="rounded-xl border border-[#30363d] bg-[#0d1117] p-3">
-            <p className="mb-1 flex items-center gap-2 text-[#8b949e]">
-              <GitPullRequest className="h-4 w-4" />
-              Last processing error
-            </p>
-            <p className={data?.status?.lastError ? "text-[#ff7b72]" : "text-[#58a6ff]"}>
-              {data?.status?.lastError || "No errors recorded"}
-            </p>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

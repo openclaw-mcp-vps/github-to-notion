@@ -6,24 +6,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { optionalEnv } from "@/lib/env";
 import { updateState } from "@/lib/storage";
 
-const STATE_COOKIE = "gtn_github_oauth_state";
+const STATE_COOKIE = "gtn_notion_oauth_state";
 
 function makeRedirectUri(request: NextRequest): string {
   return (
-    optionalEnv("GITHUB_OAUTH_REDIRECT_URL") ||
-    `${request.nextUrl.protocol}//${request.nextUrl.host}/api/auth/github`
+    optionalEnv("NOTION_OAUTH_REDIRECT_URL") ||
+    `${request.nextUrl.protocol}//${request.nextUrl.host}/api/auth/notion`
   );
 }
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const clientId = optionalEnv("GITHUB_CLIENT_ID");
-  const clientSecret = optionalEnv("GITHUB_CLIENT_SECRET");
+  const clientId = optionalEnv("NOTION_CLIENT_ID");
+  const clientSecret = optionalEnv("NOTION_CLIENT_SECRET");
 
   if (!clientId || !clientSecret) {
     return NextResponse.json(
-      { error: "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET before using OAuth." },
+      { error: "Set NOTION_CLIENT_ID and NOTION_CLIENT_SECRET before using OAuth." },
       { status: 500 }
     );
   }
@@ -34,10 +34,11 @@ export async function GET(request: NextRequest) {
 
   if (!code) {
     const state = randomUUID();
-    const authUrl = new URL("https://github.com/login/oauth/authorize");
+    const authUrl = new URL("https://api.notion.com/v1/oauth/authorize");
     authUrl.searchParams.set("client_id", clientId);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("owner", "user");
     authUrl.searchParams.set("redirect_uri", redirectUri);
-    authUrl.searchParams.set("scope", "repo read:org");
     authUrl.searchParams.set("state", state);
 
     const response = NextResponse.redirect(authUrl);
@@ -58,46 +59,43 @@ export async function GET(request: NextRequest) {
   const expectedState = cookieStore.get(STATE_COOKIE)?.value;
 
   if (!incomingState || !expectedState || incomingState !== expectedState) {
-    return NextResponse.json({ error: "GitHub OAuth state mismatch." }, { status: 400 });
+    return NextResponse.json({ error: "Notion OAuth state mismatch." }, { status: 400 });
   }
 
-  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+
+  const tokenResponse = await fetch("https://api.notion.com/v1/oauth/token", {
     method: "POST",
     headers: {
-      Accept: "application/json",
+      Authorization: `Basic ${credentials}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      client_id: clientId,
-      client_secret: clientSecret,
+      grant_type: "authorization_code",
       code,
-      redirect_uri: redirectUri,
-      state: incomingState
+      redirect_uri: redirectUri
     })
   });
 
   if (!tokenResponse.ok) {
-    return NextResponse.json({ error: "GitHub token exchange failed." }, { status: 502 });
+    return NextResponse.json({ error: "Notion token exchange failed." }, { status: 502 });
   }
 
-  const tokenPayload = (await tokenResponse.json()) as {
+  const payload = (await tokenResponse.json()) as {
     access_token?: string;
-    error?: string;
-    error_description?: string;
+    workspace_name?: string;
+    duplicated_template_id?: string;
   };
 
-  if (!tokenPayload.access_token) {
-    return NextResponse.json(
-      { error: tokenPayload.error_description || tokenPayload.error || "OAuth token missing." },
-      { status: 502 }
-    );
+  if (!payload.access_token) {
+    return NextResponse.json({ error: "Notion OAuth token missing." }, { status: 502 });
   }
 
   await updateState((state) => {
-    state.config.githubToken = tokenPayload.access_token as string;
+    state.config.notionToken = payload.access_token as string;
   });
 
-  const response = NextResponse.redirect(new URL("/setup?github=connected", request.url));
+  const response = NextResponse.redirect(new URL("/setup?notion=connected", request.url));
   response.cookies.set({
     name: STATE_COOKIE,
     value: "",
