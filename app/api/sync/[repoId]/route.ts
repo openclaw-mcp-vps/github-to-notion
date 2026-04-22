@@ -1,111 +1,172 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRepoConfigBySession, getSyncOverview, repoKeyToFullName, upsertRepoConfig } from "@/lib/database";
-import { getAppSession, refreshPaidStatus } from "@/lib/session";
-import { runManualRepoSync } from "@/lib/sync";
 
-interface SyncRequestBody {
-  repoFullName?: string;
-  githubToken?: string;
-  notionToken?: string;
-  notionDatabaseId?: string;
-  syncNow?: boolean;
-}
+import {
+  findMappingByGitHubId,
+  getRepoConnectionById,
+  logSyncEvent,
+  upsertItemMapping,
+  updateSyncState
+} from "@/lib/db";
+import { fetchIssueComments, fetchRecentGitHubItems } from "@/lib/github";
+import { requirePaidApiAccess } from "@/lib/http";
+import { appendCommentToNotion, updateNotionCommentBlock, upsertNotionPageFromGitHub } from "@/lib/notion";
 
-function maskToken(token: string) {
-  if (token.length <= 8) {
-    return "••••";
+export const runtime = "nodejs";
+
+export async function POST(request: NextRequest, context: { params: Promise<{ repoId: string }> }) {
+  const denied = requirePaidApiAccess(request);
+  if (denied) {
+    return denied;
   }
 
-  return `${token.slice(0, 4)}••••${token.slice(-4)}`;
-}
-
-export async function GET(
-  _request: NextRequest,
-  context: {
-    params: Promise<{ repoId: string }>;
-  }
-) {
   const { repoId } = await context.params;
-  const repoFullName = repoKeyToFullName(repoId);
-  const session = await getAppSession();
-  const paid = await refreshPaidStatus(session);
 
-  if (!paid) {
-    return NextResponse.json({ message: "Upgrade required." }, { status: 402 });
-  }
+  const startedAt = Date.now();
 
-  const config = await getRepoConfigBySession(session.sid as string);
-
-  if (!config || config.repoFullName.toLowerCase() !== repoFullName.toLowerCase()) {
-    return NextResponse.json({ message: "Repository is not configured for this account." }, { status: 404 });
-  }
-
-  const overview = await getSyncOverview(session.sid as string, repoFullName);
-
-  return NextResponse.json({
-    repoFullName,
-    counts: overview.counts,
-    status: overview.status,
-    config: {
-      githubToken: maskToken(config.githubToken),
-      notionDatabaseId: config.notionDatabaseId
+  try {
+    const connection = await getRepoConnectionById(repoId);
+    if (!connection) {
+      return NextResponse.json({ error: "Repository connection not found." }, { status: 404 });
     }
-  });
-}
 
-export async function POST(
-  request: NextRequest,
-  context: {
-    params: Promise<{ repoId: string }>;
-  }
-) {
-  const { repoId } = await context.params;
-  const repoFromPath = repoKeyToFullName(repoId);
-  const session = await getAppSession();
-  const paid = await refreshPaidStatus(session);
+    await updateSyncState({
+      repoId,
+      status: "syncing",
+      lastError: null,
+      touched: false
+    });
 
-  if (!paid) {
-    return NextResponse.json({ message: "Upgrade required." }, { status: 402 });
-  }
+    const items = await fetchRecentGitHubItems({
+      token: connection.github_token,
+      owner: connection.repo_owner,
+      repo: connection.repo_name,
+      perPage: 50
+    });
 
-  const body = (await request.json()) as SyncRequestBody;
-  const current = await getRepoConfigBySession(session.sid as string);
+    let syncedItems = 0;
+    let syncedComments = 0;
 
-  const repoFullName = body.repoFullName || current?.repoFullName || repoFromPath;
-  const githubToken = body.githubToken || current?.githubToken;
-  const notionToken = body.notionToken || current?.notionToken;
-  const notionDatabaseId = body.notionDatabaseId || current?.notionDatabaseId;
+    for (const item of items) {
+      const mapping = await findMappingByGitHubId(repoId, item.type, item.githubId);
 
-  if (!repoFullName || !githubToken || !notionToken || !notionDatabaseId) {
-    return NextResponse.json(
-      {
-        message: "Provide repoFullName, githubToken, notionToken, and notionDatabaseId to configure sync."
+      const notionPageId = await upsertNotionPageFromGitHub({
+        token: connection.notion_token,
+        databaseId: connection.notion_database_id,
+        repoFullName: connection.repo_full_name,
+        githubItem: item,
+        existingPageId: mapping?.notion_page_id ?? null
+      });
+
+      await upsertItemMapping({
+        repoId,
+        itemType: item.type,
+        githubId: item.githubId,
+        githubNumber: item.number,
+        notionPageId,
+        title: item.title,
+        status: item.state
+      });
+
+      syncedItems += 1;
+
+      const comments = await fetchIssueComments({
+        token: connection.github_token,
+        owner: connection.repo_owner,
+        repo: connection.repo_name,
+        issueNumber: item.number
+      });
+
+      for (const comment of comments) {
+        const commentMapping = await findMappingByGitHubId(repoId, "comment", comment.githubId);
+
+        if (commentMapping?.notion_block_id) {
+          await updateNotionCommentBlock({
+            token: connection.notion_token,
+            blockId: commentMapping.notion_block_id,
+            comment
+          });
+
+          await upsertItemMapping({
+            repoId,
+            itemType: "comment",
+            githubId: comment.githubId,
+            githubNumber: item.number,
+            notionPageId,
+            notionBlockId: commentMapping.notion_block_id,
+            title: `Comment on #${item.number}`,
+            status: "synced"
+          });
+        } else {
+          const notionBlockId = await appendCommentToNotion({
+            token: connection.notion_token,
+            pageId: notionPageId,
+            comment
+          });
+
+          await upsertItemMapping({
+            repoId,
+            itemType: "comment",
+            githubId: comment.githubId,
+            githubNumber: item.number,
+            notionPageId,
+            notionBlockId,
+            title: `Comment on #${item.number}`,
+            status: "synced"
+          });
+        }
+
+        syncedComments += 1;
+      }
+    }
+
+    const processingMs = Date.now() - startedAt;
+
+    await updateSyncState({
+      repoId,
+      status: "healthy",
+      touched: true,
+      processingMs,
+      lastError: null
+    });
+
+    await logSyncEvent({
+      repoId,
+      source: "manual",
+      eventType: "backfill",
+      detail: { syncedItems, syncedComments, processingMs },
+      status: "ok"
+    });
+
+    return NextResponse.json({
+      ok: true,
+      syncedItems,
+      syncedComments,
+      processingMs
+    });
+  } catch (error) {
+    const processingMs = Date.now() - startedAt;
+
+    await updateSyncState({
+      repoId,
+      status: "error",
+      touched: false,
+      processingMs,
+      lastError: error instanceof Error ? error.message : "Manual sync failed"
+    });
+
+    await logSyncEvent({
+      repoId,
+      source: "manual",
+      eventType: "backfill",
+      detail: {
+        error: error instanceof Error ? error.message : "Manual sync failed"
       },
-      { status: 400 }
+      status: "error"
+    });
+
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Manual sync failed" },
+      { status: 500 }
     );
   }
-
-  const config = await upsertRepoConfig({
-    sessionId: session.sid as string,
-    repoFullName,
-    githubToken,
-    notionToken,
-    notionDatabaseId
-  });
-
-  let syncResult: { synced: number; tookMs: number } | null = null;
-
-  if (body.syncNow) {
-    syncResult = await runManualRepoSync(config);
-  }
-
-  const overview = await getSyncOverview(session.sid as string, repoFullName);
-
-  return NextResponse.json({
-    ok: true,
-    repoFullName,
-    syncResult,
-    counts: overview.counts,
-    status: overview.status
-  });
 }

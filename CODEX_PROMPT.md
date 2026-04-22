@@ -11,24 +11,24 @@ NICHE: productivity
 PRICE: $$12/mo per repo/mo
 
 ARCHITECTURE SPEC:
-Next.js app with GitHub/Notion webhooks for real-time bidirectional sync. Uses Supabase for auth/storage, processes webhooks via API routes, and maintains sync state with conflict resolution.
+Real-time webhook-driven sync service built with Next.js API routes handling GitHub webhooks and Notion API calls. Uses PostgreSQL to track sync state and user configurations, with a simple dashboard for connecting repos to databases.
 
 PLANNED FILES:
 - pages/api/webhooks/github.js
 - pages/api/webhooks/notion.js
 - pages/api/auth/github.js
 - pages/api/auth/notion.js
-- lib/github-client.js
-- lib/notion-client.js
-- lib/sync-engine.js
-- components/RepoSelector.js
-- components/DatabaseSelector.js
-- components/SyncStatus.js
+- pages/api/sync/[repoId].js
 - pages/dashboard.js
 - pages/setup.js
-- pages/index.js
+- lib/github.js
+- lib/notion.js
+- lib/db.js
+- components/RepoCard.js
+- components/SyncStatus.js
+- prisma/schema.prisma
 
-DEPENDENCIES: next, tailwindcss, @supabase/supabase-js, @octokit/rest, @notionhq/client, lemonsqueezy.js, swr, react-hot-toast, lucide-react
+DEPENDENCIES: next, tailwindcss, @octokit/rest, @notionhq/client, prisma, @prisma/client, next-auth, lemonsqueezy.js, swr, react-hot-toast, lucide-react
 
 REQUIREMENTS:
 - Next.js 15 with App Router (app/ directory)

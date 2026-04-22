@@ -1,201 +1,177 @@
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Clock3, GitPullRequest, MessageSquareMore, Zap } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, GitPullRequestArrow, NotepadText, ShieldCheck } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { hasPaidAccess, PAYWALL_COOKIE_NAME } from "@/lib/paywall";
-import { cookies } from "next/headers";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-export const dynamic = "force-dynamic";
-
-const faq = [
+const faqs = [
   {
-    q: "How fast is sync in real usage?",
-    a: "Webhook events are processed immediately and updates usually appear in under 3 seconds. The dashboard shows measured latency so you can verify your own repo performance."
+    q: "How fast is sync in real workflows?",
+    a: "GitHub and Notion webhooks trigger immediate processing, and most updates are mirrored in 1-3 seconds. Dashboard latency badges show your current pipeline time." 
   },
   {
-    q: "Can I use this with private repositories?",
-    a: "Yes. Use a GitHub token or OAuth app with repository permissions. For private repos, ensure the token includes `repo` scope."
+    q: "What do I need to configure?",
+    a: "One GitHub personal access token, one Notion integration token, your repo name, your Notion database ID, and webhook secrets. Setup takes around five minutes." 
   },
   {
-    q: "How does conflict resolution work?",
-    a: "Every record tracks last GitHub and Notion update timestamps. Newer updates win, with a small 2-second tie window to prevent ping-pong loops from near-simultaneous edits."
+    q: "Can I use this for private repositories?",
+    a: "Yes. The GitHub token is scoped to your selected repository, and sync state is stored in Postgres under your deployment." 
   },
   {
-    q: "What do I need in Notion?",
-    a: "One database with a title field. Optional fields like Status, GitHub Number, and GitHub URL improve fidelity, but the app adapts to your existing schema."
+    q: "Does this replace enterprise workflow automation tools?",
+    a: "No. This is purpose-built for solo builders and tiny teams who need one repo synced fast without paying for enterprise seats." 
   }
 ];
 
-export default async function LandingPage() {
-  const cookieStore = await cookies();
-  const paid = hasPaidAccess(cookieStore.get(PAYWALL_COOKIE_NAME)?.value);
-  const paymentLink = process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK;
-
+export default function HomePage() {
   return (
-    <main className="relative overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(47,129,247,0.22),transparent_35%),radial-gradient(circle_at_85%_15%,rgba(35,134,54,0.16),transparent_40%)]" />
-
-      <section className="relative mx-auto max-w-6xl px-4 pb-20 pt-10 sm:px-6 lg:px-8">
-        <header className="mb-14 flex items-center justify-between">
-          <p className="text-sm font-semibold tracking-wide text-[#58a6ff]">github-to-notion</p>
+    <main className="min-h-screen bg-[#0d1117]">
+      <section className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6 lg:px-8">
+        <header className="flex items-center justify-between border-b border-[#30363d] pb-6">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-green-300">github-to-notion</p>
+            <h1 className="text-lg font-semibold text-slate-100">Real-time repo sync starter</h1>
+          </div>
           <div className="flex items-center gap-2">
-            <Link href={paid ? "/dashboard" : "/access"}>
-              <Button variant="outline" size="sm">
-                {paid ? "Dashboard" : "Claim Access"}
-              </Button>
-            </Link>
-            {paymentLink ? (
-              <a href={paymentLink}>
-                <Button size="sm">Buy $12/mo</Button>
+            <Button variant="ghost" asChild>
+              <a href="#pricing">Pricing</a>
+            </Button>
+            <Button asChild>
+              <a href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer">
+                Buy access
               </a>
-            ) : null}
+            </Button>
           </div>
         </header>
 
-        <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
+        <div className="mt-16 grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
           <div>
-            <p className="inline-flex items-center gap-1 rounded-full border border-[#2f81f7]/40 bg-[#2f81f7]/10 px-3 py-1 text-xs font-medium text-[#79c0ff]">
-              <Zap className="size-3.5" />
-              Real-time bidirectional sync for a single repo setup
+            <Badge className="mb-4">$12/mo per repo</Badge>
+            <h2 className="text-4xl font-semibold leading-tight text-slate-100 sm:text-5xl">
+              GitHub to Notion.
+              <br />
+              Sync every issue, PR, and comment in under 3 seconds.
+            </h2>
+            <p className="mt-5 max-w-2xl text-lg text-slate-300">
+              Stop paying enterprise pricing for basic workflow sync. Connect one GitHub repository and one Notion
+              database, then ship from one source of truth with real-time status badges.
             </p>
-            <h1 className="mt-5 text-4xl font-semibold leading-tight tracking-tight text-foreground sm:text-5xl">
-              GitHub to Notion
-              <span className="block text-[#7ee787]">real-time issue + PR sync with zero config</span>
-            </h1>
-            <p className="mt-5 max-w-2xl text-base text-muted-foreground sm:text-lg">
-              Connect one GitHub repository and one Notion database. Every issue, pull request, and
-              comment syncs both directions in under 3 seconds with clear status badges and conflict
-              safety built in.
-            </p>
-
-            <div className="mt-7 flex flex-wrap gap-3">
-              {paymentLink ? (
-                <a href={paymentLink}>
-                  <Button className="h-10 px-5 text-sm">Start for $12 per repo / month</Button>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Button size="lg" asChild>
+                <a href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer">
+                  Buy for $12/mo
+                  <ArrowRight className="h-4 w-4" />
                 </a>
-              ) : (
-                <Button className="h-10 px-5 text-sm" disabled>
-                  Add NEXT_PUBLIC_STRIPE_PAYMENT_LINK to enable checkout
-                </Button>
-              )}
-
-              <Link href={paid ? "/dashboard" : "/access"}>
-                <Button variant="outline" className="h-10 px-5 text-sm">
-                  {paid ? "Open Dashboard" : "I Already Paid"}
-                  <ArrowRight className="ml-1 size-4" />
-                </Button>
-              </Link>
+              </Button>
+              <Button size="lg" variant="outline" asChild>
+                <Link href="/checkout/success">I already purchased</Link>
+              </Button>
             </div>
-
-            <div className="mt-7 grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-              <p className="flex items-center gap-2">
-                <Clock3 className="size-4 text-[#58a6ff]" />
-                <span>Under 3s typical webhook latency</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <GitPullRequest className="size-4 text-[#58a6ff]" />
-                <span>Issue + PR status parity</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <MessageSquareMore className="size-4 text-[#58a6ff]" />
-                <span>Comment sync both ways</span>
-              </p>
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-lg border border-[#30363d] bg-[#111827]/70 p-4">
+                <p className="text-sm text-slate-400">Best for</p>
+                <p className="text-base font-semibold text-slate-100">Solo founders and 2-3 person teams</p>
+              </div>
+              <div className="rounded-lg border border-[#30363d] bg-[#111827]/70 p-4">
+                <p className="text-sm text-slate-400">Alternative cost</p>
+                <p className="text-base font-semibold text-slate-100">Save vs $29+/mo sync suites</p>
+              </div>
             </div>
           </div>
 
-          <Card className="border border-border/70 bg-card/80">
+          <Card className="border-[#30363d] bg-[#111827]/90">
             <CardHeader>
-              <CardTitle className="text-lg">Why teams switch from Unito</CardTitle>
+              <CardTitle className="text-slate-100">What ships out of the box</CardTitle>
+              <CardDescription>No complex setup wizard, no fragile polling jobs.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <p className="flex gap-2">
-                <CheckCircle2 className="mt-0.5 size-4 text-[#7ee787]" />
-                Built for founders: one repo starter tier without enterprise overhead.
+            <CardContent className="space-y-4 text-sm text-slate-200">
+              <p className="flex items-start gap-3">
+                <Clock3 className="mt-0.5 h-4 w-4 text-green-300" />
+                Webhook-first processing path with PostgreSQL-backed sync state and replay-friendly event logs.
               </p>
-              <p className="flex gap-2">
-                <CheckCircle2 className="mt-0.5 size-4 text-[#7ee787]" />
-                Webhook-driven sync avoids polling lag and keeps board + backlog aligned.
+              <p className="flex items-start gap-3">
+                <GitPullRequestArrow className="mt-0.5 h-4 w-4 text-green-300" />
+                Two-way issue and pull request updates plus comment mirroring with source markers.
               </p>
-              <p className="flex gap-2">
-                <CheckCircle2 className="mt-0.5 size-4 text-[#7ee787]" />
-                Transparent event log with timestamps and outcome badges for every action.
+              <p className="flex items-start gap-3">
+                <NotepadText className="mt-0.5 h-4 w-4 text-green-300" />
+                Notion database schema bootstrapping so your status, IDs, links, and timestamps stay consistent.
               </p>
-              <p className="flex gap-2">
-                <CheckCircle2 className="mt-0.5 size-4 text-[#7ee787]" />
-                Predictable pricing at $12/mo per repository.
+              <p className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 text-green-300" />
+                Paywall cookie gating, Stripe webhook verification, and isolated single-repo configuration.
               </p>
             </CardContent>
           </Card>
         </div>
       </section>
 
-      <section className="relative border-y border-border/70 bg-card/30">
-        <div className="mx-auto grid max-w-6xl gap-6 px-4 py-14 sm:px-6 lg:grid-cols-3 lg:px-8">
-          <Card className="border border-border/60 bg-card/70">
+      <section className="border-y border-[#30363d] bg-[#111827]/70 py-16">
+        <div className="mx-auto grid max-w-6xl gap-6 px-4 sm:px-6 lg:grid-cols-3 lg:px-8">
+          <Card className="bg-[#0d1117]">
             <CardHeader>
-              <CardTitle className="text-base">The Problem</CardTitle>
+              <CardTitle className="text-lg">Problem</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              Existing integrations are priced for larger teams and often sync slowly. Solo builders
-              need a tight GitHub + Notion loop without spending $29+ each month.
+            <CardContent className="text-slate-300">
+              Generic integrators add queue latency and force you into expensive multi-repo plans before you need
+              them.
             </CardContent>
           </Card>
-
-          <Card className="border border-border/60 bg-card/70">
+          <Card className="bg-[#0d1117]">
             <CardHeader>
-              <CardTitle className="text-base">The Solution</CardTitle>
+              <CardTitle className="text-lg">Solution</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              This app maps one GitHub repo to one Notion database and keeps issues, PRs, and comments
-              synchronized in both directions with timestamp-based conflict resolution.
+            <CardContent className="text-slate-300">
+              Purpose-built one-repo sync pipeline optimized for GitHub + Notion collaboration with a lightweight
+              dashboard.
             </CardContent>
           </Card>
-
-          <Card className="border border-border/60 bg-card/70">
+          <Card className="bg-[#0d1117]">
             <CardHeader>
-              <CardTitle className="text-base">The Offer</CardTitle>
+              <CardTitle className="text-lg">Outcome</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              One SKU: $12 per repo per month. Perfect for indie founders and 2-3 person teams that
-              need reliability more than enterprise complexity.
+            <CardContent className="text-slate-300">
+              Keep product context aligned where you write specs and where you ship code, without paying enterprise
+              overhead.
             </CardContent>
           </Card>
         </div>
       </section>
 
-      <section className="relative mx-auto max-w-6xl px-4 py-14 sm:px-6 lg:px-8">
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground">Pricing</h2>
-        <div className="mt-5 max-w-xl rounded-2xl border border-[#2f81f7]/40 bg-[#0f1a2a]/70 p-6">
-          <p className="text-sm uppercase tracking-wide text-[#79c0ff]">Starter</p>
-          <p className="mt-2 text-4xl font-semibold text-foreground">$12<span className="text-base text-muted-foreground">/repo/mo</span></p>
-          <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
-            <li>One GitHub repo + one Notion database</li>
-            <li>Bidirectional issue, PR, and comment sync</li>
-            <li>Webhook-first, near real-time processing</li>
-            <li>Dashboard with status badges + event history</li>
-          </ul>
-          <div className="mt-6">
-            {paymentLink ? (
-              <a href={paymentLink}>
-                <Button>Buy Starter Plan</Button>
+      <section id="pricing" className="mx-auto max-w-4xl px-4 py-20 sm:px-6 lg:px-8">
+        <h3 className="text-center text-3xl font-semibold text-slate-100">Simple pricing for a focused workflow</h3>
+        <Card className="mx-auto mt-8 max-w-xl border-green-500/40 bg-[#111827]">
+          <CardHeader>
+            <CardTitle className="text-2xl">Starter Sync</CardTitle>
+            <CardDescription>One GitHub repo + one Notion database</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-4xl font-semibold text-slate-100">$12<span className="text-xl text-slate-400">/month</span></p>
+            <ul className="mt-6 space-y-3 text-sm text-slate-200">
+              <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-green-300" />Real-time issue + PR + comment sync</li>
+              <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-green-300" />Webhook endpoints for both platforms</li>
+              <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-green-300" />Dashboard with sync health and event history</li>
+              <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-green-300" />Manual backfill sync for fast onboarding</li>
+            </ul>
+            <Button className="mt-8 w-full" size="lg" asChild>
+              <a href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer">
+                Continue to Stripe Checkout
               </a>
-            ) : (
-              <Button disabled>Add Stripe payment link to enable checkout</Button>
-            )}
-          </div>
-        </div>
+            </Button>
+          </CardContent>
+        </Card>
       </section>
 
-      <section className="relative mx-auto max-w-6xl px-4 pb-20 sm:px-6 lg:px-8">
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground">FAQ</h2>
-        <div className="mt-6 grid gap-4">
-          {faq.map((item) => (
-            <Card key={item.q} className="border border-border/60 bg-card/70">
+      <section className="mx-auto max-w-4xl px-4 pb-24 sm:px-6 lg:px-8">
+        <h3 className="text-3xl font-semibold text-slate-100">FAQ</h3>
+        <div className="mt-6 space-y-4">
+          {faqs.map((item) => (
+            <Card key={item.q} className="bg-[#111827]/80">
               <CardHeader>
-                <CardTitle className="text-base">{item.q}</CardTitle>
+                <CardTitle className="text-lg">{item.q}</CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">{item.a}</CardContent>
+              <CardContent className="text-slate-300">{item.a}</CardContent>
             </Card>
           ))}
         </div>

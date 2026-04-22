@@ -1,76 +1,70 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
-import { Toaster } from "react-hot-toast";
+import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 
-import "@/app/globals.css";
-import { cn } from "@/lib/utils";
+import { ToasterProvider } from "@/components/ToasterProvider";
+
+import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   variable: "--font-space-grotesk"
 });
 
-const plexMono = IBM_Plex_Mono({
+const ibmPlexMono = IBM_Plex_Mono({
   subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-plex-mono"
+  variable: "--font-ibm-plex-mono",
+  weight: ["400", "500", "600"]
 });
 
-const baseUrl = "https://github-to-notion.app";
+const metadataBase =
+  process.env.APP_BASE_URL && process.env.APP_BASE_URL.startsWith("http")
+    ? new URL(process.env.APP_BASE_URL)
+    : new URL("http://localhost:3000");
 
 export const metadata: Metadata = {
-  metadataBase: new URL(baseUrl),
-  title: "GitHub to Notion — real-time issue + PR sync with zero config",
+  metadataBase,
+  title: {
+    default: "GitHub to Notion",
+    template: "%s | GitHub to Notion"
+  },
   description:
-    "Connect one GitHub repo and one Notion database. Sync issues, pull requests, and comments both directions in under 3 seconds.",
+    "Real-time GitHub to Notion sync for solo builders. Keep issues, pull requests, and comments mirrored both directions in under 3 seconds.",
   keywords: [
     "GitHub Notion sync",
-    "issue sync",
-    "pull request sync",
-    "Notion automation",
-    "indie founder tools"
+    "Notion issue tracker",
+    "GitHub webhook automation",
+    "indie hacker productivity",
+    "pull request sync"
   ],
   openGraph: {
-    title: "GitHub to Notion — real-time issue + PR sync with zero config",
+    title: "GitHub to Notion — real-time issue + PR sync",
     description:
-      "A fast, affordable sync layer for solo founders and tiny teams: one repo, one Notion database, two-way issue + PR sync.",
-    url: baseUrl,
+      "Connect one repo and one Notion database. Sync issues, PRs, and comments both directions in under 3 seconds.",
+    url: "/",
     siteName: "GitHub to Notion",
+    locale: "en_US",
     type: "website"
   },
   twitter: {
     card: "summary_large_image",
     title: "GitHub to Notion",
-    description:
-      "Bidirectional GitHub + Notion sync for issues, PRs, and comments in under 3 seconds."
+    description: "Fast two-way issue + PR sync for solo builders."
   },
   alternates: {
     canonical: "/"
   }
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html
-      lang="en"
-      className={cn(
-        "dark font-sans",
-        spaceGrotesk.variable,
-        plexMono.variable
-      )}
-    >
-      <body className="bg-[#0d1117] text-[#e6edf3] antialiased">
+    <html lang="en" className={`${spaceGrotesk.variable} ${ibmPlexMono.variable}`}>
+      <body className="bg-[#0d1117] text-slate-100 antialiased" style={{ fontFamily: "var(--font-space-grotesk)" }}>
+        <ToasterProvider />
         {children}
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            style: {
-              background: "#161b22",
-              color: "#e6edf3",
-              border: "1px solid #30363d"
-            }
-          }}
-        />
       </body>
     </html>
   );

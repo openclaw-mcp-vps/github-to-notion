@@ -1,30 +1,30 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
-import { SetupPanel } from "@/components/SetupPanel";
-import { Button } from "@/components/ui/button";
-import { requirePaidAccess } from "@/lib/paid-access";
-
-export const dynamic = "force-dynamic";
+import { SetupForm } from "@/app/setup/setup-form";
+import { PAYWALL_COOKIE_NAME, hasPaidAccess } from "@/lib/paywall";
 
 export default async function SetupPage() {
-  await requirePaidAccess();
+  const cookieStore = await cookies();
+  const paidToken = cookieStore.get(PAYWALL_COOKIE_NAME)?.value;
+
+  if (!hasPaidAccess(paidToken)) {
+    redirect("/checkout/success");
+  }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+    <main className="mx-auto min-h-screen w-full max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Setup Sync</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Configure one GitHub repository and one Notion database. Once both webhooks are active,
-            issue, PR, and comment updates sync bidirectionally in near real time.
-          </p>
+          <h1 className="text-3xl font-semibold">Setup</h1>
+          <p className="text-sm text-slate-400">Connect your repo and Notion database to start syncing.</p>
         </div>
-        <Link href="/dashboard">
-          <Button variant="outline">Open Dashboard</Button>
+        <Link href="/dashboard" className="text-sm text-green-300 underline underline-offset-4">
+          Open dashboard
         </Link>
       </div>
-
-      <SetupPanel />
+      <SetupForm />
     </main>
   );
 }

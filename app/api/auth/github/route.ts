@@ -1,109 +1,32 @@
-import { randomUUID } from "node:crypto";
-
-import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
-import { optionalEnv } from "@/lib/env";
-import { updateState } from "@/lib/storage";
-
-const STATE_COOKIE = "gtn_github_oauth_state";
-
-function makeRedirectUri(request: NextRequest): string {
-  return (
-    optionalEnv("GITHUB_OAUTH_REDIRECT_URL") ||
-    `${request.nextUrl.protocol}//${request.nextUrl.host}/api/auth/github`
-  );
-}
+import { verifyGitHubAccess } from "@/lib/github";
+import { requirePaidApiAccess } from "@/lib/http";
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
-  const clientId = optionalEnv("GITHUB_CLIENT_ID");
-  const clientSecret = optionalEnv("GITHUB_CLIENT_SECRET");
+const schema = z.object({
+  token: z.string().min(20),
+  repoFullName: z.string().min(3)
+});
 
-  if (!clientId || !clientSecret) {
-    return NextResponse.json(
-      { error: "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET before using OAuth." },
-      { status: 500 }
-    );
+export async function POST(request: NextRequest) {
+  const denied = requirePaidApiAccess(request);
+  if (denied) {
+    return denied;
   }
 
-  const code = request.nextUrl.searchParams.get("code");
-  const incomingState = request.nextUrl.searchParams.get("state");
-  const redirectUri = makeRedirectUri(request);
+  try {
+    const body = schema.parse(await request.json());
+    const repo = await verifyGitHubAccess(body.token, body.repoFullName);
 
-  if (!code) {
-    const state = randomUUID();
-    const authUrl = new URL("https://github.com/login/oauth/authorize");
-    authUrl.searchParams.set("client_id", clientId);
-    authUrl.searchParams.set("redirect_uri", redirectUri);
-    authUrl.searchParams.set("scope", "repo read:org");
-    authUrl.searchParams.set("state", state);
-
-    const response = NextResponse.redirect(authUrl);
-    response.cookies.set({
-      name: STATE_COOKIE,
-      value: state,
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 600,
-      path: "/"
+    return NextResponse.json({
+      ok: true,
+      repo
     });
-
-    return response;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "GitHub auth failed";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
-
-  const cookieStore = await cookies();
-  const expectedState = cookieStore.get(STATE_COOKIE)?.value;
-
-  if (!incomingState || !expectedState || incomingState !== expectedState) {
-    return NextResponse.json({ error: "GitHub OAuth state mismatch." }, { status: 400 });
-  }
-
-  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      client_id: clientId,
-      client_secret: clientSecret,
-      code,
-      redirect_uri: redirectUri,
-      state: incomingState
-    })
-  });
-
-  if (!tokenResponse.ok) {
-    return NextResponse.json({ error: "GitHub token exchange failed." }, { status: 502 });
-  }
-
-  const tokenPayload = (await tokenResponse.json()) as {
-    access_token?: string;
-    error?: string;
-    error_description?: string;
-  };
-
-  if (!tokenPayload.access_token) {
-    return NextResponse.json(
-      { error: tokenPayload.error_description || tokenPayload.error || "OAuth token missing." },
-      { status: 502 }
-    );
-  }
-
-  await updateState((state) => {
-    state.config.githubToken = tokenPayload.access_token as string;
-  });
-
-  const response = NextResponse.redirect(new URL("/setup?github=connected", request.url));
-  response.cookies.set({
-    name: STATE_COOKIE,
-    value: "",
-    maxAge: 0,
-    path: "/"
-  });
-
-  return response;
 }
